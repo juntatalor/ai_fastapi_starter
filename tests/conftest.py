@@ -25,12 +25,14 @@ os.environ.setdefault("S3_BUCKET_NAME", "app-test")
 
 from src.config import get_settings  # noqa: E402
 from src.db import session as db_session_module  # noqa: E402
+from src.db.session import Base  # noqa: E402
 from src.main import create_app  # noqa: E402
+from src.models import *  # noqa: E402,F401,F403 — регистрирует все модели в Base.metadata
 from src.models.user import User, UserRole  # noqa: E402
 from src.services.auth import hash_password, issue_token  # noqa: E402
 
 _settings = get_settings()
-_engine = create_async_engine(_settings.database_url, future=True)
+_engine = create_async_engine(_settings.database_url, future=True, pool_pre_ping=True)
 _TestSession = async_sessionmaker(_engine, expire_on_commit=False)
 
 # Подмена sessionmaker в src.db.session чтобы dependency get_db брал тестовую БД
@@ -38,23 +40,36 @@ _TestSession = async_sessionmaker(_engine, expire_on_commit=False)
 db_session_module.engine = _engine
 db_session_module.async_session_maker = _TestSession
 
+_db_initialized = False
 
-@pytest_asyncio.fixture(autouse=True)
-async def _clean_db() -> AsyncIterator[None]:
-    """Каждый тест начинается с пустых таблиц."""
-    async with _engine.begin() as conn:
-        await conn.execute(text("TRUNCATE TABLE usage_log, users RESTART IDENTITY CASCADE"))
-    yield
+
+async def _init_db() -> None:
+    """Создаёт schema в тестовой БД если её ещё нет."""
+    global _db_initialized
+    if not _db_initialized:
+        async with _engine.begin() as conn:
+            # Создаём все таблицы на основе моделей
+            await conn.run_sync(Base.metadata.create_all)
+        _db_initialized = True
 
 
 @pytest_asyncio.fixture
 async def db_session() -> AsyncIterator[AsyncSession]:
+    """Async session для тестов. Каждый тест работает с чистыми таблицами."""
+    # Инициализируем БД (будет выполнено только один раз)
+    await _init_db()
+
     async with _TestSession() as session:
+        # Очищаем используя DELETE (более безопасно в asyncpg) вместо TRUNCATE
+        await session.execute(text("DELETE FROM usage_log"))
+        await session.execute(text("DELETE FROM users"))
+        await session.commit()
         yield session
 
 
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
+    """HTTP client с ASGITransport для тестирования API."""
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
@@ -62,6 +77,8 @@ async def client() -> AsyncIterator[AsyncClient]:
 
 @pytest_asyncio.fixture
 async def user_factory(db_session: AsyncSession) -> Callable:
+    """Фабрика для создания пользователей в БД."""
+
     async def _make(
         *,
         email: str,
@@ -86,6 +103,8 @@ async def user_factory(db_session: AsyncSession) -> Callable:
 
 @pytest.fixture
 def auth_headers() -> Callable[[User], dict[str, str]]:
+    """Генератор Authorization header'а для JWT токенов."""
+
     def _make(user: User) -> dict[str, str]:
         return {"Authorization": f"Bearer {issue_token(user.id)}"}
 
