@@ -11,7 +11,8 @@ from functools import partial
 from logging.config import dictConfig
 
 from fastapi import FastAPI
-from prometheus_fastapi_instrumentator import Instrumentator
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from src.common.logging_config import get_logging_config
 from src.common.queue import create_queue
@@ -66,7 +67,10 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="worker", lifespan=lifespan)
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
+    @app.get("/metrics", include_in_schema=False)
+    def _metrics() -> Response:
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.get("/healthcheck")
     def _hc() -> dict[str, str]:

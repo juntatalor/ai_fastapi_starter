@@ -1,4 +1,12 @@
-"""Глобальные фикстуры: async DB session + httpx AsyncClient + helpers."""
+"""Глобальные фикстуры: async DB session + httpx AsyncClient + helpers.
+
+Архитектура: per-test event loop (default pytest-asyncio function-scope).
+Engine создаётся **внутри** каждой фикстуры — таким образом asyncpg
+connection не пересекается между loops.
+
+Чтобы FastAPI dependency ``get_db`` использовал тестовый engine, делаем
+``app.dependency_overrides[get_db] = lambda: <test session>``.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +18,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 # Гарантируем что Settings прочитают тестовые значения — до импорта src.config.
-os.environ.setdefault(
-    "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@db:5432/app_test"
-)
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@db:5432/app_test")
 os.environ.setdefault("JWT_SECRET", "test-secret-32-chars-min-padding-aaa")
 os.environ.setdefault("YANDEX_OAUTH_ENABLED", "false")
 os.environ.setdefault("OPENAI_API_KEY", "test-fake")
@@ -23,61 +30,67 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "minioadmin")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "minioadmin")
 os.environ.setdefault("S3_BUCKET_NAME", "app-test")
 
+from src.api.deps import get_db  # noqa: E402
 from src.config import get_settings  # noqa: E402
-from src.db import session as db_session_module  # noqa: E402
 from src.db.session import Base  # noqa: E402
 from src.main import create_app  # noqa: E402
 from src.models import *  # noqa: E402,F401,F403 — регистрирует все модели в Base.metadata
 from src.models.user import User, UserRole  # noqa: E402
 from src.services.auth import hash_password, issue_token  # noqa: E402
 
-_settings = get_settings()
-_engine = create_async_engine(_settings.database_url, future=True, pool_pre_ping=True)
-_TestSession = async_sessionmaker(_engine, expire_on_commit=False)
-
-# Подмена sessionmaker в src.db.session чтобы dependency get_db брал тестовую БД
-# (на случай если settings prod-евые перехватываются после import).
-db_session_module.engine = _engine
-db_session_module.async_session_maker = _TestSession
-
-_db_initialized = False
+_SCHEMA_INITIALIZED = False
 
 
-async def _init_db() -> None:
-    """Создаёт schema в тестовой БД если её ещё нет."""
-    global _db_initialized
-    if not _db_initialized:
-        async with _engine.begin() as conn:
-            # Создаём все таблицы на основе моделей
+@pytest_asyncio.fixture
+async def db_engine() -> AsyncIterator:
+    """Создаёт async engine на текущий event-loop теста.
+
+    NullPool — не кешируем соединения между тестами.
+    Schema создаётся один раз (модуль-flag).
+    """
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, future=True, poolclass=NullPool)
+    global _SCHEMA_INITIALIZED
+    if not _SCHEMA_INITIALIZED:
+        async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        _db_initialized = True
+        _SCHEMA_INITIALIZED = True
+    # Чистим таблицы перед каждым тестом.
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM usage_log"))
+        await conn.execute(text("DELETE FROM users"))
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def db_session() -> AsyncIterator[AsyncSession]:
-    """Async session для тестов. Каждый тест работает с чистыми таблицами."""
-    # Инициализируем БД (будет выполнено только один раз)
-    await _init_db()
-
-    async with _TestSession() as session:
-        # Очищаем используя DELETE (более безопасно в asyncpg) вместо TRUNCATE
-        await session.execute(text("DELETE FROM usage_log"))
-        await session.execute(text("DELETE FROM users"))
-        await session.commit()
-        yield session
+async def db_session(db_engine) -> AsyncIterator[AsyncSession]:
+    """Сессия для прямого использования из теста (например user_factory)."""
+    Session = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with Session() as s:
+        yield s
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncIterator[AsyncClient]:
-    """HTTP client с ASGITransport для тестирования API."""
+async def client(db_engine) -> AsyncIterator[AsyncClient]:
+    """HTTP client с FastAPI dependency_overrides на тестовый engine."""
     app = create_app()
+    Session = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def _override_get_db() -> AsyncIterator[AsyncSession]:
+        async with Session() as s:
+            yield s
+
+    app.dependency_overrides[get_db] = _override_get_db
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
 
 @pytest_asyncio.fixture
 async def user_factory(db_session: AsyncSession) -> Callable:
-    """Фабрика для создания пользователей в БД."""
+    """Фабрика юзеров. Использует db_session (тот же engine что и client)."""
 
     async def _make(
         *,
@@ -103,8 +116,6 @@ async def user_factory(db_session: AsyncSession) -> Callable:
 
 @pytest.fixture
 def auth_headers() -> Callable[[User], dict[str, str]]:
-    """Генератор Authorization header'а для JWT токенов."""
-
     def _make(user: User) -> dict[str, str]:
         return {"Authorization": f"Bearer {issue_token(user.id)}"}
 
