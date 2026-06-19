@@ -1,0 +1,126 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./docker/initdb.sh:/docker-entrypoint-initdb.d/initdb.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/app
+      PGQUEUER_DSN: postgresql://postgres:postgres@db:5432/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/app
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me-32-chars-please}
+      - YANDEX_OAUTH_ENABLED=${YANDEX_OAUTH_ENABLED:-false}
+      - YANDEX_CLIENT_ID=${YANDEX_CLIENT_ID:-}
+      - YANDEX_CLIENT_SECRET=${YANDEX_CLIENT_SECRET:-}
+      - YANDEX_REDIRECT_URI=${YANDEX_REDIRECT_URI:-http://localhost:5173/oauth/yandex}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_DEFAULT_MODEL=${OPENAI_DEFAULT_MODEL:-gpt-4o-mini}
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY_ID=minioadmin
+      - S3_SECRET_ACCESS_KEY=minioadmin
+      - S3_BUCKET_NAME=app
+      - S3_REGION=us-east-1
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./src:/app/src
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/app
+      - PGQUEUER_DSN=postgresql://postgres:postgres@db:5432/app
+      - WORKER_METRICS_PORT=8001
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_DEFAULT_MODEL=${OPENAI_DEFAULT_MODEL:-gpt-4o-mini}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./src:/app/src
+
+  test:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.test
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/app_test
+      - JWT_SECRET=test-secret-32-chars-min-padding-aaa
+      - YANDEX_OAUTH_ENABLED=false
+      - OPENAI_API_KEY=test-fake-key
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY_ID=minioadmin
+      - S3_SECRET_ACCESS_KEY=minioadmin
+      - S3_BUCKET_NAME=app-test
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - app
+
+volumes:
+  db_data:
+  minio_data:
