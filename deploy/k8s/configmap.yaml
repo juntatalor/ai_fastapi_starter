@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: app
+data:
+  APP_NAME: "ai_fastapi_starter"
+  DEBUG: "false"
+  APP_BASE_URL: "https://example.com"
+  LOG_LEVEL: "INFO"
+
+  # Auth
+  JWT_TTL_DAYS: "7"
+  YANDEX_OAUTH_ENABLED: "false"
+  YANDEX_REDIRECT_URI: "https://example.com/oauth/yandex"
+
+  # LLM
+  OPENAI_BASE_URL: "https://api.openai.com/v1"
+  OPENAI_DEFAULT_MODEL: "gpt-4o-mini"
+  OPENAI_CHAT_TIMEOUT_SECONDS: "60"
+
+  # S3
+  S3_BUCKET_NAME: "app"
+  S3_REGION: "ru-1"
+  S3_ENDPOINT_URL: "https://s3.twcstorage.ru"
+
+  # Worker
+  WORKER_METRICS_PORT: "8001"
