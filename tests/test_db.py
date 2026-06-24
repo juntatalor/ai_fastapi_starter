@@ -1,12 +1,12 @@
-"""Smoke-тест: таблица users существует. Гоняется в docker compose run test."""
+"""Smoke-тест: таблица users существует в тестовой БД."""
+
+from __future__ import annotations
 
 import pytest
 from sqlalchemy import text
-
-from src.db.session import async_session_maker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_users_table_exists():
-    async with async_session_maker() as s:
-        await s.execute(text("SELECT 1 FROM users LIMIT 1"))
+async def test_users_table_exists(db_session: AsyncSession) -> None:
+    await db_session.execute(text("SELECT 1 FROM users LIMIT 1"))
