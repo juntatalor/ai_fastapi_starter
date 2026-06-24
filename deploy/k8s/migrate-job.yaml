@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: app
+  # При каждом деплое надо переcоздавать Job — добавь timestamp в имя
+  # на стороне CI (например через kustomize image tag + generateName).
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: REGISTRY_PLACEHOLDER/app-migrate:latest
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-env

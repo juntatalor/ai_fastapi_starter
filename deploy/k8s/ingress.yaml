@@ -1,0 +1,47 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app
+  namespace: app
+  annotations:
+    # cert-manager + nginx-ingress; HOSTNAME заменить на свой
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - HOSTNAME_PLACEHOLDER
+      secretName: app-tls
+  rules:
+    - host: HOSTNAME_PLACEHOLDER
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: app
+                port:
+                  number: 8000
+          - path: /metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: app
+                port:
+                  number: 8000
+          - path: /healthcheck
+            pathType: Exact
+            backend:
+              service:
+                name: app
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
