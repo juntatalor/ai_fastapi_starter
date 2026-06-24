@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
+    "email-validator>=2.1",
     "sqlalchemy[asyncio]>=2.0.30",
     "asyncpg>=0.29",
     "alembic>=1.13",
@@ -18,7 +19,6 @@ dependencies = [
     "bcrypt>=4.2",
     "PyJWT>=2.9",
     "prometheus-client>=0.20",
-    "prometheus-fastapi-instrumentator>=7.0",
     "python-multipart>=0.0.9",
     "PyYAML>=6.0",
 ]
@@ -33,6 +33,7 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.8",
     "types-PyYAML",
+    "respx>=0.21",
 ]
 
 [build-system]
