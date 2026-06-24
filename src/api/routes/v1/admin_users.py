@@ -25,13 +25,8 @@ router = APIRouter(prefix="/admin/users", tags=["admin"])
 
 
 def _to_out(u: User) -> AdminUserOut:
-    return AdminUserOut.model_validate(
-        {
-            **u.__dict__,
-            "has_password": u.password_hash is not None,
-            "has_yandex": u.yandex_id is not None,
-        }
-    )
+    """Шорткат — оставлен для совместимости с существующими вызовами."""
+    return AdminUserOut.from_user(u)
 
 
 @router.get("", response_model=list[AdminUserOut])

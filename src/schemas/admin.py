@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from src.models.user import UserRole
+from src.models.user import User, UserRole
 
 
 class AdminUserOut(BaseModel):
@@ -14,6 +14,22 @@ class AdminUserOut(BaseModel):
     is_active: bool
     has_password: bool
     has_yandex: bool
+
+    @classmethod
+    def from_user(cls, user: User) -> "AdminUserOut":
+        """Конвертация ORM User → AdminUserOut с явным маппингом полей.
+
+        Не используем ``**user.__dict__`` — он тащит SQLAlchemy-внутренности
+        и password_hash. Explicit > implicit (см. также UserOut.from_user)."""
+        return cls(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role,
+            is_active=user.is_active,
+            has_password=user.password_hash is not None,
+            has_yandex=user.yandex_id is not None,
+        )
 
 
 class AdminUserCreate(BaseModel):
