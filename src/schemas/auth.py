@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from src.models.user import UserRole
+from src.models.user import User, UserRole
 
 
 class LoginRequest(BaseModel):
@@ -26,6 +26,24 @@ class UserOut(BaseModel):
     is_active: bool
     has_password: bool = Field(description="Можно ли логиниться по password.")
     has_yandex: bool = Field(description="Привязан ли Yandex-аккаунт.")
+
+    @classmethod
+    def from_user(cls, user: User) -> "UserOut":
+        """Конвертация из ORM User → UserOut с явным маппингом полей.
+
+        Не используем ``**user.__dict__`` — он тащит SQLAlchemy-внутренности
+        (``_sa_instance_state``, password_hash и пр.) и склонен ломаться при
+        изменениях модели. Explicit > implicit.
+        """
+        return cls(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role,
+            is_active=user.is_active,
+            has_password=user.password_hash is not None,
+            has_yandex=user.yandex_id is not None,
+        )
 
 
 class ChangePasswordRequest(BaseModel):

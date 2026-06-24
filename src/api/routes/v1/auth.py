@@ -23,13 +23,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token
 
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user)) -> UserOut:
-    return UserOut.model_validate(
-        {
-            **user.__dict__,
-            "has_password": user.password_hash is not None,
-            "has_yandex": user.yandex_id is not None,
-        }
-    )
+    return UserOut.from_user(user)
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
