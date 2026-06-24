@@ -33,6 +33,7 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.8",
     "types-PyYAML",
+    "respx>=0.21",
 ]
 
 [build-system]
