@@ -18,6 +18,8 @@ import json
 import logging
 from typing import Any
 
+from src.context import current_operation, request_id, user_id
+
 # Библиотечные логгеры, которые нужно нормализовать под наш формат.
 # Если будешь подключать новую библиотеку с шумным логгером — добавь её сюда.
 _LIBRARY_LOGGERS: list[str] = [
@@ -91,10 +93,6 @@ class ContextFilter(logging.Filter):
     """Добавляет request_id / user_id / operation из contextvars в запись лога."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        # Импорт внутри метода — модуль logging_config может грузиться раньше
-        # чем src.context (например через dictConfig строкой-классом).
-        from src.context import current_operation, request_id, user_id
-
         record.request_id = request_id.get() or "-"
         record.user_id = user_id.get() or "-"
         op = current_operation.get()
