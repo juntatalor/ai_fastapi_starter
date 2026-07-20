@@ -14,11 +14,13 @@ from src.api.routes.v1 import healthcheck
 from src.common.logging_config import get_logging_config
 from src.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     dictConfig(get_logging_config(get_settings().log_level))
-    logging.getLogger(__name__).info("App started: %s", get_settings().app_name)
+    logger.info("App started: %s", get_settings().app_name)
     yield
 
 
