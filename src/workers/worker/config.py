@@ -12,6 +12,18 @@ class WorkerSettings(BaseSettings):
     database_url: str
     pgqueuer_dsn: str
     worker_metrics_port: int = Field(default=8001, ge=1024, le=65535)
+    pgqueuer_dispatch_retry_seconds: int = Field(
+        default=15,
+        ge=1,
+        le=600,
+        description="Пауза между рестартами consumer-loop'а супервизором.",
+    )
+    pgqueuer_reconnect_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Сколько попыток на один enqueue при InterfaceError producer-коннекта.",
+    )
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_default_model: str = "gpt-4o-mini"

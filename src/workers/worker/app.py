@@ -19,6 +19,8 @@ from src.workers.worker.config import get_worker_settings
 from src.workers.worker.metrics import (
     job_duration_seconds,
     jobs_processed_total,
+    pgqueuer_dispatch_restarts_total,
+    pgqueuer_dispatch_up,
     worker_uptime_seconds,
 )
 from src.workers.worker.tasks.example_task import handle_example
@@ -44,7 +46,14 @@ async def _wrap(task_name: str, handler, payload: bytes) -> None:
 async def lifespan(app: FastAPI):
     s = get_worker_settings()
     dictConfig(get_logging_config(s.log_level))
-    queue = create_queue(s.pgqueuer_dsn)
+    # DI метрик супервизора — очередь их дёргает, но сама про prometheus не знает.
+    queue = create_queue(
+        s.pgqueuer_dsn,
+        dispatch_retry_seconds=s.pgqueuer_dispatch_retry_seconds,
+        reconnect_attempts=s.pgqueuer_reconnect_attempts,
+        dispatch_up_metric=pgqueuer_dispatch_up,
+        dispatch_restarts_metric=pgqueuer_dispatch_restarts_total,
+    )
     queue.register_handler("example", partial(_wrap, "example", handle_example))
     started = time.monotonic()
 
@@ -54,14 +63,14 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(5)
 
     uptime_task = asyncio.create_task(_uptime())
-    queue_task = asyncio.create_task(queue.run())
+    # start() — non-blocking, супервизор крутится сам, run() внутри цикла.
+    await queue.start()
     logger.info("Worker started")
     try:
         yield
     finally:
         uptime_task.cancel()
         await queue.stop()
-        queue_task.cancel()
 
 
 def create_app() -> FastAPI:

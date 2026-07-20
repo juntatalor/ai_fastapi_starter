@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+OnRetry = Callable[[BaseException, int], Awaitable[None]]
+
 
 async def retry_async(
     fn: Callable[[], Awaitable[T]],
@@ -20,8 +22,14 @@ async def retry_async(
     base_delay: float = 0.5,
     max_delay: float = 8.0,
     exceptions: tuple[type[BaseException], ...] = (Exception,),
+    on_retry: OnRetry | None = None,
 ) -> T:
-    """Запускает ``fn`` до ``attempts`` раз, ждёт ``base_delay * 2^n`` + jitter."""
+    """Запускает ``fn`` до ``attempts`` раз, ждёт ``base_delay * 2^n`` + jitter.
+
+    ``on_retry`` — опциональный async callback ``(exc, attempt_no) -> None``,
+    вызывается на промежуточных ошибках перед sleep. Удобно для cleanup'а
+    (закрыть мёртвый коннект и т.п.) перед следующей попыткой.
+    """
     last_exc: BaseException | None = None
     for attempt in range(1, attempts + 1):
         try:
@@ -30,6 +38,8 @@ async def retry_async(
             last_exc = e
             if attempt == attempts:
                 raise
+            if on_retry is not None:
+                await on_retry(e, attempt)
             delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
             delay += random.random() * 0.5
             logger.warning("retry attempt %d/%d after %.2fs: %s", attempt, attempts, delay, e)
