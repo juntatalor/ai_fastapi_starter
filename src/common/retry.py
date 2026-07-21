@@ -1,4 +1,4 @@
-"""Retry-helper с exponential backoff + jitter."""
+"""Retry-helper: exponential backoff + jitter."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ async def retry_async(
     """Запускает ``fn`` до ``attempts`` раз, ждёт ``base_delay * 2^n`` + jitter.
 
     ``on_retry`` — опциональный async callback ``(exc, attempt_no) -> None``,
-    вызывается на промежуточных ошибках перед sleep. Удобно для cleanup'а
-    (закрыть мёртвый коннект и т.п.) перед следующей попыткой.
+    вызывается на промежуточных ошибках перед sleep. Удобно для cleanup —
+    закрыть мёртвый коннект и т.п. перед следующей попыткой.
     """
     last_exc: BaseException | None = None
     for attempt in range(1, attempts + 1):

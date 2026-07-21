@@ -1,9 +1,8 @@
-"""Тест авто-reconnect'а в PgQueuerQueue.enqueue.
+"""Тест автопереподключения в PgQueuerQueue.enqueue.
 
 Прод-сценарий: pgqueuer держит долгоживущий asyncpg-коннект, managed
-Postgres / прокси убил его по idle timeout — следующий enqueue должен
-переподнять коннект через on_retry, а не возвращать 500 первому же
-клиенту.
+Postgres / прокси убил коннект по idle timeout — следующий enqueue должен
+переподнять коннект через on_retry, чтобы клиент не получил 500.
 """
 
 from __future__ import annotations

@@ -1,20 +1,21 @@
-"""Реализация очереди на базе pgqueuer с супервизором.
+"""Реализация очереди на базе pgqueuer, поднимает встроенный супервизор
+для авторестарта consumer.
 
 Managed Postgres / прокси рвут долгоживущие asyncpg-коннекты по
 idle-timeout. Голый ``pgq.run()`` тогда падает
 ``asyncpg.InterfaceError: connection is closed`` — dispatch умирает,
 задачи копятся, никто не замечает пока не прилетит алерт по очереди.
 
-Consumer поэтому крутится в супервизор-loop (:meth:`_supervise`): при
-любом сбое пересоздаём коннект, PgQueuer и entrypoint-байндинги, ждём
+Consumer поэтому крутится в цикле супервизора (:meth:`_supervise`): при
+любой ошибке пересоздаём коннект, PgQueuer и entrypoint-байндинги, ждём
 ``dispatch_retry_seconds`` и стартуем dispatch снова. Метрики
-``dispatch_up`` / ``dispatch_restarts`` — DI под, чтобы не тянуть
-воркеровые метрики в common.
+``dispatch_up`` / ``dispatch_restarts`` инжектируются извне — иначе
+пришлось бы тянуть воркеровые метрики в common.
 
 Producer работает через отдельный коннект (asyncpg не поддерживает
-конкурентные операции на одном коннекте). :meth:`enqueue` ретраится на
-``InterfaceError`` с пересозданием producer-коннекта — тот же сценарий
-idle-таймаута, но без супервизора вокруг.
+конкурентные операции на одном коннекте). :meth:`enqueue` ретраится
+на ``InterfaceError``, пересоздавая producer-коннект — тот же сценарий
+idle-таймаута, только без супервизора вокруг.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ class PgQueuerQueue(AbstractQueue):
     """PgQueuer + супервизор + enqueue-reconnect.
 
     Параметры фабрики (:func:`src.common.queue.create_queue`) — под DI:
-    ``dispatch_retry_seconds`` — пауза между рестартами consumer-loop'а,
+    ``dispatch_retry_seconds`` — пауза между рестартами цикла consumer,
     ``reconnect_attempts`` — сколько раз пытаться реконнектнуть producer
     в одном ``enqueue()``, ``dispatch_up_metric`` /
     ``dispatch_restarts_metric`` — Prometheus-метрики воркера.
@@ -74,8 +75,8 @@ class PgQueuerQueue(AbstractQueue):
         """Отдельное соединение для постановки задач.
 
         Пересоздаёт коннект если он закрыт — long-lived asyncpg рвётся по
-        idle timeout у managed Postgres, следующий enqueue упадёт
-        InterfaceError без reconnect'а.
+        idle timeout от managed Postgres, следующий enqueue упадёт
+        InterfaceError без переподключения.
         """
         if self._producer_conn is None or self._producer_conn.is_closed():
             self._producer_conn = await asyncpg.connect(self._dsn)
@@ -91,7 +92,7 @@ class PgQueuerQueue(AbstractQueue):
         async def _attempt() -> None:
             conn = await self._ensure_producer()
             pgq = PgQueuer.from_asyncpg_connection(conn)
-            # pgq.queries тип-хинтится как RepositoryPort | None, но у свежесозданного
+            # pgq.queries тип-хинтится как RepositoryPort | None, но в свежесозданном
             # PgQueuer он всегда есть — pgqueuer стабов пока не отдаёт.
             assert pgq.queries is not None
             await pgq.queries.enqueue([entrypoint], [payload], [priority])
@@ -112,7 +113,7 @@ class PgQueuerQueue(AbstractQueue):
     # ---------- consumer supervisor ----------
 
     async def start(self) -> None:
-        """Стартует супервизор consumer'а в фоне. Идемпотентно."""
+        """Стартует супервизор consumer в фоне. Идемпотентно."""
         if self._supervisor_task is not None and not self._supervisor_task.done():
             return
         self._stop_event = asyncio.Event()
@@ -129,7 +130,7 @@ class PgQueuerQueue(AbstractQueue):
         while not self._stop_event.is_set():
             try:
                 # Каждая итерация — свежий коннект: старый мог быть закрыт
-                # со стороны PG после разрыва, реюзать нельзя.
+                # на стороне PG после разрыва, реюзать нельзя.
                 await self._close_consumer_conn()
                 self._conn = await asyncpg.connect(self._dsn)
                 self._pgq = PgQueuer.from_asyncpg_connection(self._conn)

@@ -8,9 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.api.routes.v1 import admin_users, auth
+from src.api.routes.v1 import admin_users, auth, healthcheck
 from src.api.routes.v1 import config as config_route
-from src.api.routes.v1 import healthcheck
 from src.common.logging_config import get_logging_config
 from src.config import get_settings
 

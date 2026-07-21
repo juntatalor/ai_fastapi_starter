@@ -1,6 +1,5 @@
-"""TrackedOpenAI — AsyncOpenAI с логированием usage в БД."""
+"""TrackedOpenAI — AsyncOpenAI, пишет usage в БД."""
 
-from collections.abc import Callable
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -11,7 +10,7 @@ from src.models.usage_log import UsageLog
 
 
 class TrackedOpenAI:
-    """Тонкая обёртка вокруг AsyncOpenAI с записью usage в usage_log."""
+    """Тонкая обёртка вокруг AsyncOpenAI, пишет usage в usage_log."""
 
     def __init__(
         self,
@@ -25,7 +24,7 @@ class TrackedOpenAI:
         self._default_model = default_model
 
     @property
-    def chat(self) -> "ChatNamespace":
+    def chat(self) -> ChatNamespace:
         return ChatNamespace(self)
 
     async def _log_usage(

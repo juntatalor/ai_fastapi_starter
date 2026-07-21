@@ -33,7 +33,9 @@ async def get_current_user(
     try:
         return await get_user(db, user_id)
     except NotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found") from e
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        ) from e
 
 
 async def get_current_admin(user: User = Depends(get_current_user)) -> User:

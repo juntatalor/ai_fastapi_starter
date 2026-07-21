@@ -16,7 +16,7 @@ class WorkerSettings(BaseSettings):
         default=15,
         ge=1,
         le=600,
-        description="Пауза между рестартами consumer-loop'а супервизором.",
+        description="Пауза между рестартами цикла consumer в супервизоре.",
     )
     pgqueuer_reconnect_attempts: int = Field(
         default=2,

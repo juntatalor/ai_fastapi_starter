@@ -25,7 +25,7 @@ router = APIRouter(prefix="/admin/users", tags=["admin"])
 
 
 def _to_out(u: User) -> AdminUserOut:
-    """Шорткат — оставлен для совместимости с существующими вызовами."""
+    """Шорткат — оставлен ради совместимости старых вызовов."""
     return AdminUserOut.from_user(u)
 
 

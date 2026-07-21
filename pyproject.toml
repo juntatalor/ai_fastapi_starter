@@ -54,6 +54,27 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+# UP047 — pep695-generic-function; TypeVar-стиль всё ещё валидный.
+# RUF001/002/003 (ambiguous cyrillic) намеренно ВКЛЮЧЕНЫ — комменты и
+# docstring'и должны быть однородными (либо чисто русские слова с
+# неомографной буквой, либо чисто латинский технический термин), иначе
+# copy-paste ломается и грепать невозможно.
+ignore = ["UP047"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI-паттерн `param = Depends(...)` / `Query(...)` — вызов в default
+# argument, но это ожидаемое использование. Не считаем за B008.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Security",
+]
 
 [tool.mypy]
 python_version = "3.14"

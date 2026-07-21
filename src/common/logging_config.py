@@ -1,13 +1,13 @@
 """Конфигурация логирования приложения.
 
-Портировано из hrai с минимальными правками под стартер.
+Портировано из hrai, слегка адаптировано под стартер.
 
 Поддерживает два форматтера:
 - ``default`` — читаемый текст для разработки (DEBUG=true)
 - ``json`` — однострочный JSON для прода (DEBUG=false), удобен для Loki/CloudWatch
 
 Библиотечные логгеры явно перечислены: handlers=[], propagate=True.
-Это гарантирует единый формат — все записи идут через root-хендлер с нашим форматтером.
+Это гарантирует единый формат — все записи идут через общий root-хендлер.
 
 ``ContextFilter`` автоматически добавляет ``request_id`` / ``user_id`` /
 ``operation`` из contextvars (см. ``src/context.py``) в каждую запись лога.
@@ -21,7 +21,7 @@ from typing import Any
 from src.context import current_operation, request_id, user_id
 
 # Библиотечные логгеры, которые нужно нормализовать под наш формат.
-# Если будешь подключать новую библиотеку с шумным логгером — добавь её сюда.
+# Если будешь подключать новую шумную библиотеку — добавь имя логгера сюда.
 _LIBRARY_LOGGERS: list[str] = [
     "uvicorn",
     "uvicorn.error",
@@ -71,7 +71,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "loggers": {
         # Свой код — DEBUG чтобы видеть отладку.
         "src": {"level": "DEBUG", "propagate": True},
-        # Uvicorn — снимаем его хендлеры, пропускаем через root.
+        # Uvicorn — снимаем собственные хендлеры, пропускаем через root.
         "uvicorn": {"handlers": [], "level": "INFO", "propagate": True},
         "uvicorn.access": {"handlers": [], "level": "WARNING", "propagate": False},
         "uvicorn.error": {"handlers": [], "level": "INFO", "propagate": True},

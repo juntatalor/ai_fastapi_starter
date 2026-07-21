@@ -1,4 +1,4 @@
-"""Healthcheck вернёт {"status": "ok"} с 200."""
+"""Healthcheck вернёт {"status": "ok"} и код 200."""
 
 from __future__ import annotations
 
