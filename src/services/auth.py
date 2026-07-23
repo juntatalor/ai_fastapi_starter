@@ -45,7 +45,9 @@ async def authenticate(db: AsyncSession, *, email: str, password: str) -> User:
     if user is None or not user.is_active:
         raise NotFoundError("Неверный email или пароль")
     if user.password_hash is None:
-        raise PermissionDeniedError("Войдите через Yandex или попросите admin'а сбросить пароль.")
+        raise PermissionDeniedError(
+            "Войдите через Yandex или попросите администратора сбросить пароль."
+        )
     if not verify_password(password, user.password_hash):
         raise NotFoundError("Неверный email или пароль")
     return user
@@ -62,8 +64,10 @@ async def get_user(db: AsyncSession, user_id: int) -> User:
 async def change_password(
     db: AsyncSession, *, user: User, current_password: str | None, new_password: str
 ) -> None:
-    if user.password_hash is not None:
-        if current_password is None or not verify_password(current_password, user.password_hash):
-            raise PermissionDeniedError("Текущий пароль неверен")
+    if user.password_hash is not None and (
+        current_password is None
+        or not verify_password(current_password, user.password_hash)
+    ):
+        raise PermissionDeniedError("Текущий пароль неверен")
     user.password_hash = hash_password(new_password)
     await db.commit()

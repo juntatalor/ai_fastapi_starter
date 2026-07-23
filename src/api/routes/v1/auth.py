@@ -44,7 +44,9 @@ async def update_password(
             new_password=body.new_password,
         )
     except PermissionDeniedError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 def _ensure_yandex_enabled() -> None:

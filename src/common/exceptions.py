@@ -6,7 +6,7 @@ class AppError(Exception):
 
 
 class NotFoundError(AppError):
-    """Ресурс не найден."""
+    """Запрошенный объект не найден."""
 
 
 class PermissionDeniedError(AppError):
@@ -14,7 +14,7 @@ class PermissionDeniedError(AppError):
 
 
 class ConflictError(AppError):
-    """Состояние ресурса не позволяет операцию."""
+    """Текущее состояние объекта не позволяет выполнить операцию."""
 
 
 class ExternalServiceError(AppError):

@@ -28,10 +28,10 @@ class UserOut(BaseModel):
     has_yandex: bool = Field(description="Привязан ли Yandex-аккаунт.")
 
     @classmethod
-    def from_user(cls, user: User) -> "UserOut":
-        """Конвертация из ORM User → UserOut с явным маппингом полей.
+    def from_user(cls, user: User) -> UserOut:
+        """Конвертация из ORM User → UserOut, поля мапятся явно.
 
-        Не используем ``**user.__dict__`` — он тащит SQLAlchemy-внутренности
+        Избегаем ``**user.__dict__`` — он тащит SQLAlchemy-внутренности
         (``_sa_instance_state``, password_hash и пр.) и склонен ломаться при
         изменениях модели. Explicit > implicit.
         """
@@ -50,6 +50,9 @@ class ChangePasswordRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
     current_password: str | None = Field(
         default=None,
-        description="Текущий пароль. Обязателен если у user'а уже есть password_hash.",
+        description=(
+            "Текущий пароль. Обязателен если для пользователя "
+            "уже задан password_hash."
+        ),
     )
     new_password: str = Field(min_length=8, max_length=128, description="Новый пароль ≥8 символов.")

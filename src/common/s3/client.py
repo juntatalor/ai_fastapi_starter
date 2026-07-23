@@ -1,7 +1,7 @@
-"""S3 client — async через aiobotocore. Endpoint совместим с MinIO/Twcstorage."""
+"""S3 client — async через aiobotocore, endpoint работает и на MinIO, и на Twcstorage."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from aiobotocore.session import get_session
 

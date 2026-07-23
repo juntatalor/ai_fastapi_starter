@@ -16,10 +16,10 @@ class AdminUserOut(BaseModel):
     has_yandex: bool
 
     @classmethod
-    def from_user(cls, user: User) -> "AdminUserOut":
-        """Конвертация ORM User → AdminUserOut с явным маппингом полей.
+    def from_user(cls, user: User) -> AdminUserOut:
+        """Конвертация ORM User → AdminUserOut, поля мапятся явно.
 
-        Не используем ``**user.__dict__`` — он тащит SQLAlchemy-внутренности
+        Избегаем ``**user.__dict__`` — он тащит SQLAlchemy-внутренности
         и password_hash. Explicit > implicit (см. также UserOut.from_user)."""
         return cls(
             id=user.id,
@@ -38,7 +38,9 @@ class AdminUserCreate(BaseModel):
     full_name: str | None = None
     role: UserRole = UserRole.USER
     password: str | None = Field(
-        default=None, min_length=8, description="Опционально — если не задан, юзер войдёт через Yandex."
+        default=None,
+        min_length=8,
+        description="Опционально — если не задан, юзер войдёт через Yandex.",
     )
 
 

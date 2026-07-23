@@ -10,7 +10,7 @@ from src.config import get_settings
 
 
 class Base(DeclarativeBase):
-    """Базовый класс ORM-моделей. Все модели наследуют его."""
+    """Базовый класс ORM-моделей. Наследуется всеми моделями."""
 
 
 _settings = get_settings()
@@ -24,7 +24,7 @@ async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
-    """Контекстный менеджер с авто-rollback на исключении."""
+    """Контекстный менеджер: авто-rollback на исключении."""
     async with async_session_maker() as session:
         try:
             yield session
