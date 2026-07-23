@@ -1,64 +1,122 @@
 """Глобальные фикстуры: async DB session + httpx AsyncClient + helpers.
 
-Архитектура: per-test event loop (default pytest-asyncio function-scope).
-Engine создаётся **внутри** каждой фикстуры — таким образом asyncpg
-connection не пересекается между loops.
+Архитектура (session-scope):
+* env выставляется через session-scope autouse fixture (:func:`_env_setup`),
+  до первого импорта конфига. ``get_settings.cache_clear()`` вызывается
+  после — чтобы pydantic-settings прочитал наши тестовые значения.
+* Схема БД накатывается через ``alembic upgrade head`` — так тесты гоняют
+  ту же цепочку миграций, что и прод. Downgrade → upgrade перед сессией,
+  чтобы старт шёл на чистой БД.
+* Один session-scope engine, базовый пул — коннекты переиспользуются
+  между тестами (переоткрывать asyncpg-коннект на каждый тест дорого).
 
-Чтобы FastAPI dependency ``get_db`` использовал тестовый engine, делаем
-``app.dependency_overrides[get_db] = lambda: <test session>``.
+Изоляция (function-scope):
+* ``db_session`` открывает транзакцию + SAVEPOINT; в конце теста
+  ``ROLLBACK`` откатывает все изменения. Коннект возвращается в пул.
+* ``client`` принимает ``db_session`` и подсовывает её в FastAPI через
+  ``dependency_overrides[get_db]`` — тест и endpoint работают в одной
+  транзакции, user_factory создаёт юзера, ручка этого юзера видит.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 
-# Гарантируем что Settings прочитают тестовые значения — до импорта src.config.
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@db:5432/app_test")
-os.environ.setdefault("JWT_SECRET", "test-secret-32-chars-min-padding-aaa")
-os.environ.setdefault("YANDEX_OAUTH_ENABLED", "false")
-os.environ.setdefault("OPENAI_API_KEY", "test-fake")
-os.environ.setdefault("S3_ENDPOINT_URL", "http://minio:9000")
-os.environ.setdefault("S3_ACCESS_KEY_ID", "minioadmin")
-os.environ.setdefault("S3_SECRET_ACCESS_KEY", "minioadmin")
-os.environ.setdefault("S3_BUCKET_NAME", "app-test")
+# Env-переменные ставим на модуль-уровне — до импорта src.config, т.к. alembic
+# env.py вызывает get_settings() при первом импорте. session-scope autouse
+# фикстура ниже страхует случай если что-то уже успело закешироваться.
+_TEST_ENV = {
+    "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@db:5432/app_test",
+    "JWT_SECRET": "test-secret-32-chars-min-padding-aaa",
+    "YANDEX_OAUTH_ENABLED": "false",
+    "OPENAI_API_KEY": "test-fake",
+    "S3_ENDPOINT_URL": "http://minio:9000",
+    "S3_ACCESS_KEY_ID": "minioadmin",
+    "S3_SECRET_ACCESS_KEY": "minioadmin",
+    "S3_BUCKET_NAME": "app-test",
+}
+for _k, _v in _TEST_ENV.items():
+    os.environ.setdefault(_k, _v)
 
 from src.api.deps import get_db  # noqa: E402
 from src.config import get_settings  # noqa: E402
-from src.db.session import Base  # noqa: E402
 from src.main import create_app  # noqa: E402
-from src.models import *  # noqa: E402,F401,F403 — регистрирует все модели в Base.metadata
+from src.models import *  # noqa: E402,F403 — регистрирует все модели в Base.metadata
 from src.models.user import User, UserRole  # noqa: E402
 from src.services.auth import hash_password, issue_token  # noqa: E402
 
-_SCHEMA_INITIALIZED = False
 
+@pytest.fixture(scope="session", autouse=True)
+def _env_setup() -> Iterator[None]:
+    """Гарантируем что _TEST_ENV применён и Settings прочитают именно эти значения.
 
-@pytest_asyncio.fixture
-async def db_engine() -> AsyncIterator:
-    """Создаёт async engine на текущий event-loop теста.
-
-    NullPool — не кешируем соединения между тестами.
-    Schema создаётся один раз (модуль-flag).
+    ``get_settings`` кеширует Settings через lru_cache — если что-то
+    закешировалось на старом env (например при импорте conftest.py
+    другим раннером), сбрасываем кеш.
     """
-    settings = get_settings()
-    engine = create_async_engine(settings.database_url, future=True, poolclass=NullPool)
-    global _SCHEMA_INITIALIZED
-    if not _SCHEMA_INITIALIZED:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        _SCHEMA_INITIALIZED = True
-    # Чистим таблицы перед каждым тестом.
-    async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM usage_log"))
-        await conn.execute(text("DELETE FROM users"))
+    monkey = pytest.MonkeyPatch()
+    for k, v in _TEST_ENV.items():
+        monkey.setenv(k, v)
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        monkey.undo()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _apply_migrations(_env_setup: None) -> Iterator[None]:
+    """Раскатываем схему через alembic ровно один раз на прогон.
+
+    downgrade base → upgrade head — старт на чистой БД, даже если
+    предыдущий прогон свалился и оставил мусор.
+
+    Фикстура sync — alembic env.py при импорте зовёт ``asyncio.run(...)``,
+    из async-контекста звать нельзя (``asyncio.run() cannot be called
+    from a running event loop``).
+
+    alembic.ini содержит [loggers] секцию, ``fileConfig`` внутри env.py
+    перекручивает root logger на WARN → caplog в тестах ловит пустоту.
+    Уровень root logger и флаг disabled восстанавливаем ниже.
+    """
+    import logging
+
+    from alembic import command
+    from alembic.config import Config
+
+    root_before = logging.getLogger().level
+
+    cfg = Config("alembic.ini")
+    # alembic env.py читает settings при импорте (см. migrations/env.py) —
+    # env к этому моменту уже выставлен через _env_setup.
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "head")
+
+    # fileConfig в alembic env.py включает disable_existing_loggers=True —
+    # ставит disabled=True на всех уже импортированных src.* логгерах,
+    # из-за чего pytest caplog в тестах ловит пустоту. Раздавливаем обратно.
+    for name in list(logging.root.manager.loggerDict):
+        lg = logging.getLogger(name)
+        lg.disabled = False
+    logging.getLogger().setLevel(root_before)
+    yield
+
+
+@pytest_asyncio.fixture(scope="session")
+async def db_engine() -> AsyncIterator[AsyncEngine]:
+    """Один engine на всю сессию, дефолтный пул.
+
+    asyncpg-коннекты переиспользуются между тестами — открытие коннекта
+    дорогое (TLS handshake + auth). Изоляция тестов держится не на
+    свежем коннекте, но через rollback транзакции в :func:`db_session`.
+    """
+    engine = create_async_engine(get_settings().database_url, future=True)
     try:
         yield engine
     finally:
@@ -66,22 +124,46 @@ async def db_engine() -> AsyncIterator:
 
 
 @pytest_asyncio.fixture
-async def db_session(db_engine) -> AsyncIterator[AsyncSession]:
-    """Сессия для прямого использования из теста (например user_factory)."""
-    Session = async_sessionmaker(db_engine, expire_on_commit=False)
-    async with Session() as s:
-        yield s
+async def _db_connection(db_engine: AsyncEngine) -> AsyncIterator[AsyncConnection]:
+    """Коннект + внешняя транзакция, откатывается по завершении теста.
+
+    Приём «join-transaction»: session привязана к connection, session.commit
+    коммитит вложенный SAVEPOINT (не внешний), внешний ROLLBACK в конце
+    теста откатывает всё что тест написал — таблицы остаются чистыми.
+    """
+    async with db_engine.connect() as conn:
+        trans = await conn.begin()
+        try:
+            yield conn
+        finally:
+            await trans.rollback()
 
 
 @pytest_asyncio.fixture
-async def client(db_engine) -> AsyncIterator[AsyncClient]:
-    """HTTP client с FastAPI dependency_overrides на тестовый engine."""
+async def db_session(_db_connection: AsyncConnection) -> AsyncIterator[AsyncSession]:
+    """Сессия внутри внешней транзакции. session.commit → SAVEPOINT, не PG-commit."""
+    session = AsyncSession(
+        bind=_db_connection,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+    try:
+        yield session
+    finally:
+        await session.close()
+
+
+@pytest_asyncio.fixture
+async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """HTTP client, ``get_db`` возвращает ту же сессию что и тест.
+
+    Клиент и ``user_factory`` видят одну транзакцию — юзер, созданный
+    фабрикой до вызова эндпоинта, для эндпоинта уже существует.
+    """
     app = create_app()
-    Session = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
-        async with Session() as s:
-            yield s
+        yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -90,7 +172,7 @@ async def client(db_engine) -> AsyncIterator[AsyncClient]:
 
 @pytest_asyncio.fixture
 async def user_factory(db_session: AsyncSession) -> Callable:
-    """Фабрика юзеров. Использует db_session (тот же engine что и client)."""
+    """Фабрика юзеров. Использует ту же db_session что и client."""
 
     async def _make(
         *,

@@ -20,3 +20,4 @@ frontend/dist/
 test-results/
 .claude/
 docs/superpowers/
+docker-compose.override.yml
