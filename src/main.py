@@ -6,8 +6,7 @@ from logging.config import dictConfig
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from src.api.routes.v1 import admin_users, auth, healthcheck
 from src.api.routes.v1 import config as config_route
@@ -34,11 +33,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.get("/metrics", include_in_schema=False)
-    def _metrics() -> Response:
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
+    # Instrumentator ставит middleware для http_requests_total и
+    # http_request_duration_seconds по каждой ручке + expose'ит /metrics.
+    # excluded_handlers — не считаем сам /metrics и /healthcheck, чтобы
+    # не забивать метрики скраперами и liveness-пробами.
+    Instrumentator(
+        excluded_handlers=["/metrics", "/healthcheck"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
     app.include_router(healthcheck.router)
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(admin_users.router, prefix="/api/v1")
