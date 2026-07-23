@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg: 255 255 255;
+    --color-surface: 248 250 252;
+    --color-text: 15 23 42;
+    --color-text-muted: 100 116 139;
+    --color-primary: 99 102 241;
+    --color-border: 226 232 240;
+  }
+  .dark {
+    --color-bg: 15 23 42;
+    --color-surface: 30 41 59;
+    --color-text: 226 232 240;
+    --color-text-muted: 148 163 184;
+    --color-primary: 129 140 248;
+    --color-border: 51 65 85;
+  }
+  html, body, #root { @apply h-full; }
+  body { @apply bg-bg text-text antialiased; }
+}
