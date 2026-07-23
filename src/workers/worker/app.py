@@ -75,7 +75,12 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="worker", lifespan=lifespan)
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    # Воркер отдаёт только /healthcheck и /metrics — HTTP-метрики нужны
+    # разве что для liveness-статистики. Ставим Instrumentator ради
+    # консистентности между основным app и воркером.
+    Instrumentator(
+        excluded_handlers=["/metrics", "/healthcheck"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
     @app.get("/healthcheck")
     def _hc() -> dict[str, str]:

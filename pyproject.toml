@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
+    "email-validator>=2.1",
     "sqlalchemy[asyncio]>=2.0.30",
     "asyncpg>=0.29",
     "alembic>=1.13",
@@ -18,7 +19,7 @@ dependencies = [
     "bcrypt>=4.2",
     "PyJWT>=2.9",
     "prometheus-client>=0.20",
-    "prometheus-fastapi-instrumentator>=7.0",
+    "prometheus-fastapi-instrumentator>=7.1.0",
     "python-multipart>=0.0.9",
     "PyYAML>=6.0",
 ]
@@ -45,6 +46,10 @@ packages = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# session-scope loop нужен для session-scope engine (asyncpg привязан к loop).
+# Оба параметра — фикстуры и тесты должны крутиться на одном session-loop.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 addopts = "--strict-markers -ra --cov=src --cov-report=term-missing"
 testpaths = ["tests"]
 

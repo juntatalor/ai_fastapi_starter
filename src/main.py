@@ -33,7 +33,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    # Instrumentator ставит middleware для http_requests_total и
+    # http_request_duration_seconds по каждой ручке + expose'ит /metrics.
+    # excluded_handlers — не считаем сам /metrics и /healthcheck, чтобы
+    # не забивать метрики скраперами и liveness-пробами.
+    Instrumentator(
+        excluded_handlers=["/metrics", "/healthcheck"],
+    ).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
     app.include_router(healthcheck.router)
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(admin_users.router, prefix="/api/v1")
